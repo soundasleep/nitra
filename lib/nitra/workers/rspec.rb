@@ -29,30 +29,58 @@ module Nitra::Workers
     # Run an rspec file.
     #
     def run_file(filename, preloading = false)
-      runner = runner_for(filename)
-      failure = runner.run(io, io).to_i != 0
+      if configuration.split_files && !preloading && !filename.include?(':')
+        # We want to get all of the individual rspecs and pass these along to
+        # our runners
+        runner = runner_for(filename, true)
+        failure = runner.run(io, io) != 0
 
-      if failure && @configuration.exceptions_to_retry && @attempt && @attempt < @configuration.max_attempts &&
-         io.string =~ @configuration.exceptions_to_retry
-        raise RetryException
-      end
+        if failure
+          return {
+            "test_count"    => 1,
+            "failure_count" => 1,
+            "failure"       => true
+          }
+        end
 
-      if m = io.string.match(/(\d+) examples?, (\d+) failure/)
-        test_count = m[1].to_i
-        failure_count = m[2].to_i
+        example_groups = runner.instance_variable_get(:@world).all_example_groups
+        scenarios = example_groups.map do |group|
+          group.metadata[:location]
+        end
+
+        {
+          "test_count"    => 0,
+          "failure_count" => 0,
+          "failure"       => false,
+          "parts_to_run"  => scenarios,
+        }
       else
-        test_count = failure_count = 0
-      end
+        runner = runner_for(filename)
+        failure = runner.run(io, io).to_i != 0
 
-      {
-        "failure"       => failure,
-        "test_count"    => test_count,
-        "failure_count" => failure_count,
-      }
+        if failure && @configuration.exceptions_to_retry && @attempt && @attempt < @configuration.max_attempts &&
+           io.string =~ @configuration.exceptions_to_retry
+          raise RetryException
+        end
+
+        if m = io.string.match(/(\d+) examples?, (\d+) failure/)
+          test_count = m[1].to_i
+          failure_count = m[2].to_i
+        else
+          test_count = failure_count = 0
+        end
+
+        {
+          "failure"       => failure,
+          "test_count"    => test_count,
+          "failure_count" => failure_count,
+        }
+      end
     end
 
-    def runner_for(filename)
+    def runner_for(filename, dry_run = false)
       args = ["-f", "p", filename]
+      args << "--dry-run" if dry_run
       if RSpec::Core::const_defined?(:CommandLine) && RSpec::Core::Version::STRING < "2.99"
         RSpec::Core::CommandLine.new(args)
       else
