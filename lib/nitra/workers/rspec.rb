@@ -36,17 +36,35 @@ module Nitra::Workers
         failure = runner.run(io, io) != 0
 
         if failure
+          puts "Could not load scenarios in #{filename}" if configuration.debug
+
           return {
-            "test_count"    => 1,
-            "failure_count" => 1,
+            "test_count"    => 0,
+            "failure_count" => 0,
             "failure"       => true
           }
         end
 
         example_groups = runner.instance_variable_get(:@world).all_example_groups
-        scenarios = example_groups.map do |group|
+        scenarios = example_groups.reject do |group|
+          # trim out parent groups that realistically would be empty
+          # e.g.
+          # describe Foo
+          #   describe Bar
+          #     it Baz { }
+          #   end
+          # end
+          # will create Foo, Foo::Bar and Foo::Bar::Baz example groups
+          # but we only want to run Foo::Bar::Baz
+          example_groups.any? { |other| other.name != group.name && group.name.start_with?(other.name) }
+        end.map do |group|
+          # Foo::Bar example group -> ./spec/foo_bar.rb:123
           group.metadata[:location]
         end
+
+        # trim out e.g. foo::bar::baz should not test foo::bar
+
+        puts "Found #{scenarios.count} scenarios in #{filename}" if configuration.debug
 
         {
           "test_count"    => 0,
@@ -60,6 +78,7 @@ module Nitra::Workers
 
         if failure && @configuration.exceptions_to_retry && @attempt && @attempt < @configuration.max_attempts &&
            io.string =~ @configuration.exceptions_to_retry
+          puts "#{filename} failed: retrying" if configuration.debug
           raise RetryException
         end
 
@@ -69,6 +88,8 @@ module Nitra::Workers
         else
           test_count = failure_count = 0
         end
+
+        puts "#{filename} succeeded with #{test_count} tests, #{failure_count} failures" if configuration.debug
 
         {
           "failure"       => failure,
