@@ -24,12 +24,17 @@ module Nitra::Workers
       @cuke_runtime ||= ::Cucumber::ResetableRuntime.new  # This runtime gets reused, this is important as it's the part that loads the steps...
     end
 
+    def tags_expression
+      # pass along e.g. `@performance`, or just run everything
+      configuration.tags || "~@run_everything"
+    end
+
     ##
     # Run a Cucumber file.
     #
     def run_file(filename, preloading = false)
       if configuration.split_files && !preloading && !filename.include?(':')
-        run_with_arguments("--no-color", "--require", "features", "--dry-run", filename)
+        run_with_arguments("--no-color", "--tags", tags_expression, "--require", "features", "--dry-run", filename)
 
         {
           "test_count"    => 0,
@@ -38,7 +43,7 @@ module Nitra::Workers
           "parts_to_run"  => runnable_parts,
         }
       else
-        run_with_arguments("--no-color", "--require", "features", filename)
+        run_with_arguments("--no-color", "--tags", tags_expression, "--require", "features", filename)
 
         if cuke_runtime.failure? && @configuration.exceptions_to_retry && @attempt && @attempt < @configuration.max_attempts &&
            cuke_runtime.results.scenarios(:failed).any? {|scenario| scenario.exception.to_s =~ @configuration.exceptions_to_retry || scenario.exception.class.to_s =~ @configuration.exceptions_to_retry}

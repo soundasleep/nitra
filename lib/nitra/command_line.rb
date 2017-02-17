@@ -76,6 +76,10 @@ module Nitra
           configuration.start_framework = framework
         end
 
+        opts.on("--tags @TAG", "Only run these Cucumber tags") do |tags|
+          configuration.tags = tags
+        end
+
         opts.on("-e", "--environment ENV", String, "Set the RAILS_ENV to load") do |env|
           configuration.environment = env
         end
